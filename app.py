@@ -20,7 +20,7 @@ st.markdown("""
 
 @st.cache_data
 def load_data():
-df = pd.read_csv("cleaned_pharma_sales (1).csv")
+df = pd.read_csv("cleaned_pharma_sales.csv")
 date_cols = ["Billing_Date","Mfg_Date","Expiry_Date","SO_Creation_Date"]
 for col in date_cols:
 df[col] = pd.to_datetime(df[col], errors="coerce")
@@ -100,4 +100,5 @@ df["Product_Age_When_Sold"]=(df["Billing_Date"]-df["Mfg_Date"]).dt.days
 st.plotly_chart(px.box(df,y="Product_Age_When_Sold"),use_container_width=True)
 
 st.success("Dashboard ready for executive presentation")
+
 
