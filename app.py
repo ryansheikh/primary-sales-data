@@ -1,149 +1,102 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 
 st.set_page_config(page_title="Pharma Executive Dashboard", layout="wide")
 
-# =========================
-# LOAD DATA
-# =========================
+# ---------- STYLE ----------
+
+st.markdown("""
+
+<style>
+.big-font {font-size:28px !important; font-weight:700;}
+.metric-card {background-color:#F8F9FB; padding:15px; border-radius:12px;}
+</style>
+
+""", unsafe_allow_html=True)
+
+# ---------- LOAD DATA ----------
+
 @st.cache_data
 def load_data():
-    df = pd.read_csv("cleaned_pharma_sales.csv",
-                     parse_dates=["Billing_Date","Mfg_Date","Expiry_Date","SO_Creation_Date"])
-
-    today = pd.Timestamp.now().normalize()
-    df["Days_to_Expiry"] = (df["Expiry_Date"] - today).dt.days
-
-    return df
+df = pd.read_csv("cleaned_pharma_sales.csv")
+date_cols = ["Billing_Date","Mfg_Date","Expiry_Date","SO_Creation_Date"]
+for col in date_cols:
+df[col] = pd.to_datetime(df[col], errors="coerce")
+return df
 
 df = load_data()
 
-# =========================
-# SIDEBAR FILTERS
-# =========================
-st.sidebar.header("Filters")
+# ---------- SIDEBAR ----------
 
-selected_product = st.sidebar.multiselect(
-    "Select Product",
-    df["Material_Name"].dropna().unique()
-)
+st.sidebar.title("Filters")
+product = st.sidebar.multiselect("Product", df["Material_Name"].dropna().unique())
+year = st.sidebar.multiselect("Year", df["Billing_Date"].dt.year.unique())
 
-selected_year = st.sidebar.multiselect(
-    "Select Year",
-    df["Billing_Date"].dt.year.unique()
-)
+if product:
+df = df[df["Material_Name"].isin(product)]
+if year:
+df = df[df["Billing_Date"].dt.year.isin(year)]
 
-if selected_product:
-    df = df[df["Material_Name"].isin(selected_product)]
+today = pd.Timestamp.now().normalize()
+df["Days_to_Expiry"] = (df["Expiry_Date"] - today).dt.days
 
-if selected_year:
-    df = df[df["Billing_Date"].dt.year.isin(selected_year)]
+# ---------- TITLE ----------
 
-# =========================
-# TITLE
-# =========================
-st.title("💊 Pharma Sales Executive Dashboard")
+st.markdown('<p class="big-font">Pharma Sales Executive Dashboard</p>', unsafe_allow_html=True)
 
-# =========================
-# KPI SECTION
-# =========================
-col1, col2, col3, col4, col5 = st.columns(5)
+# ---------- KPIs ----------
 
-total_revenue = df["Revenue"].sum()
-total_qty = df["Billing_Qty"].sum()
-avg_lead = df["Lead_Time"].mean()
-expiry_90 = df[df["Days_to_Expiry"] < 90].shape[0]
-unique_customers = df["Sold_to"].nunique()
-
-col1.metric("Total Revenue", f"{total_revenue:,.0f}")
-col2.metric("Total Quantity Sold", f"{total_qty:,.0f}")
-col3.metric("Avg Lead Time (Days)", f"{avg_lead:.1f}")
-col4.metric("Expiring < 90 Days", expiry_90)
-col5.metric("Active Customers", unique_customers)
+c1,c2,c3,c4,c5 = st.columns(5)
+c1.metric("Revenue", f"{df.Revenue.sum():,.0f}")
+c2.metric("Units Sold", f"{df.Billing_Qty.sum():,.0f}")
+c3.metric("Customers", df.Sold_to.nunique())
+c4.metric("Avg Lead Time", f"{df.Lead_Time.mean():.1f} days")
+c5.metric("Expiry < 90 Days", df[df.Days_to_Expiry<90].shape[0])
 
 st.markdown("---")
 
-# =========================
-# 1️⃣ Revenue Trend
-# =========================
-st.subheader("📈 Monthly Revenue Trend")
+# ---------- REVENUE TREND ----------
 
-monthly = df.groupby(df["Billing_Date"].dt.to_period("M"))["Revenue"].sum().reset_index()
-monthly["Billing_Date"] = monthly["Billing_Date"].astype(str)
+st.subheader("Revenue Trend")
+monthly = df.groupby(df.Billing_Date.dt.to_period("M"))["Revenue"].sum().reset_index()
+monthly["Billing_Date"]=monthly["Billing_Date"].astype(str)
+st.plotly_chart(px.line(monthly,x="Billing_Date",y="Revenue",markers=True),use_container_width=True)
 
-fig1 = px.line(monthly, x="Billing_Date", y="Revenue", markers=True)
-st.plotly_chart(fig1, use_container_width=True)
+# ---------- TOP PRODUCTS ----------
 
-# =========================
-# 2️⃣ Top Products
-# =========================
-st.subheader("🏆 Top 10 Products by Revenue")
+col1,col2 = st.columns(2)
 
-top_products = df.groupby("Material_Name")["Revenue"].sum().sort_values(ascending=False).head(10)
-fig2 = px.bar(top_products, orientation="h")
-st.plotly_chart(fig2, use_container_width=True)
+top_products = df.groupby("Material_Name")["Revenue"].sum().sort_values().tail(10)
+col1.subheader("Top Products")
+col1.plotly_chart(px.bar(top_products,orientation="h"),use_container_width=True)
 
-# =========================
-# 3️⃣ Revenue by Distributor
-# =========================
-st.subheader("🚚 Revenue by Distribution Partner")
+top_customers = df.groupby("Sold_to")["Revenue"].sum().sort_values().tail(10)
+col2.subheader("Top Customers")
+col2.plotly_chart(px.bar(top_customers,orientation="h"),use_container_width=True)
 
-dist = df.groupby("SDP_Name")["Revenue"].sum().sort_values(ascending=False).head(10)
-fig3 = px.bar(dist, orientation="h")
-st.plotly_chart(fig3, use_container_width=True)
+# ---------- DISTRIBUTOR PERFORMANCE ----------
 
-# =========================
-# 4️⃣ Customer Concentration
-# =========================
-st.subheader("👥 Top Customers by Revenue")
+st.subheader("Distributor Performance")
+dist = df.groupby("SDP_Name")["Revenue"].sum().sort_values().tail(10)
+st.plotly_chart(px.bar(dist,orientation="h"),use_container_width=True)
 
-top_customers = df.groupby("Sold_to")["Revenue"].sum().sort_values(ascending=False).head(10)
-fig4 = px.bar(top_customers, orientation="h")
-st.plotly_chart(fig4, use_container_width=True)
+# ---------- EXPIRY RISK ----------
 
-# =========================
-# 5️⃣ Expiry Risk Analysis
-# =========================
-st.subheader("⚠️ Expiry Risk Analysis")
+st.subheader("Expiry Risk")
+st.plotly_chart(px.histogram(df[df.Days_to_Expiry>=0],x="Days_to_Expiry",nbins=50),use_container_width=True)
+st.dataframe(df[df.Days_to_Expiry<90][["Material_Name","Batch","Expiry_Date","Days_to_Expiry"]])
 
-expiry_df = df[df["Days_to_Expiry"] >= 0]
+# ---------- SUPPLY CHAIN ----------
 
-fig5 = px.histogram(expiry_df, x="Days_to_Expiry", nbins=50)
-st.plotly_chart(fig5, use_container_width=True)
+st.subheader("Order Lead Time")
+st.plotly_chart(px.histogram(df,x="Lead_Time"),use_container_width=True)
 
-st.write("Products expiring within 90 days:")
-st.dataframe(df[df["Days_to_Expiry"] < 90][[
-    "Material_Name","Batch","Expiry_Date","Days_to_Expiry"
-]].sort_values("Days_to_Expiry"))
+# ---------- PRODUCT FRESHNESS ----------
 
-# =========================
-# 6️⃣ Lead Time Distribution
-# =========================
-st.subheader("⏳ Order Fulfillment Lead Time")
+st.subheader("Product Age When Sold")
+df["Product_Age_When_Sold"]=(df["Billing_Date"]-df["Mfg_Date"]).dt.days
+st.plotly_chart(px.box(df,y="Product_Age_When_Sold"),use_container_width=True)
 
-fig6 = px.histogram(df, x="Lead_Time", nbins=40)
-st.plotly_chart(fig6, use_container_width=True)
-
-# =========================
-# 7️⃣ Product Age When Sold
-# =========================
-st.subheader("📦 Product Freshness (Age When Sold)")
-
-df["Product_Age_When_Sold"] = (df["Billing_Date"] - df["Mfg_Date"]).dt.days
-fig7 = px.box(df, y="Product_Age_When_Sold")
-st.plotly_chart(fig7, use_container_width=True)
-
-# =========================
-# 8️⃣ Revenue Contribution %
-# =========================
-st.subheader("📊 Revenue Contribution by Product")
-
-product_rev = df.groupby("Material_Name")["Revenue"].sum().reset_index()
-product_rev = product_rev.sort_values("Revenue", ascending=False)
-product_rev["Revenue %"] = product_rev["Revenue"] / product_rev["Revenue"].sum() * 100
-
-fig8 = px.pie(product_rev.head(10), names="Material_Name", values="Revenue")
-st.plotly_chart(fig8, use_container_width=True)
+st.success("Dashboard ready for executive presentation")
